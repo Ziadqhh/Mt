@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,6 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,10 +74,13 @@ fun MTEditorApp(
     coroutineScope: CoroutineScope = rememberCoroutineScope()
 ) {
     val context = LocalContext.current
-    val vfs = remember { VirtualFileSystem() }
+    val vfs = remember {
+        ensureRealDirectorySetup(context)
+        VirtualFileSystem()
+    }
     
     // Theme & Info configurations
-    var isDarkTheme by remember { mutableStateOf(true) }
+    var selectedTheme by remember { mutableStateOf(AppTheme.CLASSIC_DARK) }
     var appLanguage by remember { mutableStateOf(AppLanguage.ARABIC) }
     
     // VFS navigation state
@@ -104,7 +112,7 @@ fun MTEditorApp(
     val terminalState = remember { TerminalState(vfs, coroutineScope, askGemini) }
 
     // Synchronize App Settings changes to ThemeState
-    ThemeState.currentTheme = if (isDarkTheme) AppTheme.CLASSIC_DARK else AppTheme.DEEP_BLUE
+    ThemeState.currentTheme = selectedTheme
     ThemeState.currentLanguage = appLanguage
 
     // Back button routing: intercept back press when inside secondary utilities and route back.
@@ -113,17 +121,48 @@ fun MTEditorApp(
     }
 
     // Custom Color Palette mimicking MT Manager aesthetics
-    val backgroundBrush = if (isDarkTheme) {
-        Brush.verticalGradient(listOf(Color(0xFF121212), Color(0xFF1D1F21)))
-    } else {
-        Brush.verticalGradient(listOf(Color(0xFFF9F9FB), Color(0xFFECEFF1)))
+    val backgroundBrush = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Brush.verticalGradient(listOf(Color(0xFF141A24), Color(0xFF10141C)))
+        AppTheme.MIDNIGHT_BLACK -> Brush.verticalGradient(listOf(Color(0xFF000000), Color(0xFF0A0A0A)))
+        AppTheme.DEEP_BLUE -> Brush.verticalGradient(listOf(Color(0xFF070F1F), Color(0xFF10254C)))
     }
     
-    val surfaceColor = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFFFFFFF)
-    val headerColor = if (isDarkTheme) Color(0xFF263238) else Color(0xFF37474F)
-    val dividerColor = if (isDarkTheme) Color(0xFF2D2D2D) else Color(0xFFE0E0E0)
-    val textColor = if (isDarkTheme) Color(0xFFECEFF1) else Color(0xFF212121)
-    val secondaryText = if (isDarkTheme) Color(0xFFB0BEC5) else Color(0xFF757575)
+    val surfaceColor = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFF1E2633)
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFF0F0F0F)
+        AppTheme.DEEP_BLUE -> Color(0xFF172A45)
+    }
+    
+    val headerColor = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFF263238)
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFF141414)
+        AppTheme.DEEP_BLUE -> Color(0xFF0B192E)
+    }
+    
+    val dividerColor = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFF2E3B4E)
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFF222222)
+        AppTheme.DEEP_BLUE -> Color(0xFF1E3A5F)
+    }
+    
+    val textColor = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFFECEFF1)
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFFECEFF1)
+        AppTheme.DEEP_BLUE -> Color(0xFFE6F1FF)
+    }
+    
+    val secondaryText = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFF90A4AE)
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFF888888)
+        AppTheme.DEEP_BLUE -> Color(0xFF8892B0)
+    }
+    
+    val accentColor = when (selectedTheme) {
+        AppTheme.CLASSIC_DARK -> Color(0xFFFFA726) // Amber/Orange
+        AppTheme.MIDNIGHT_BLACK -> Color(0xFF00FF66) // Electric Neon Lime
+        AppTheme.DEEP_BLUE -> Color(0xFF64FFDA) // Cyber Aquamarine
+    }
+    
     val blueAccent = Color(0xFF29B6F6)
     val greenAccent = Color(0xFF66BB6A)
 
@@ -135,8 +174,8 @@ fun MTEditorApp(
                 modifier = Modifier.width(310.dp)
             ) {
                 DrawerHeaderView(
-                    isDark = isDarkTheme,
-                    onThemeToggle = { isDarkTheme = !isDarkTheme },
+                    selectedTheme = selectedTheme,
+                    onThemeChange = { selectedTheme = it },
                     language = appLanguage,
                     onLanguageToggle = {
                         appLanguage = if (appLanguage == AppLanguage.ARABIC) AppLanguage.ENGLISH else AppLanguage.ARABIC
@@ -262,7 +301,7 @@ fun MTEditorApp(
                             val resolved = vfs.resolvePath(activePath)
                             val foldersCount = resolved.children.count { it.isDirectory }
                             val filesCount = resolved.children.count { !it.isDirectory }
-                            "${ThemeState.getTranslation("folders")}: $foldersCount  ${ThemeState.getTranslation("files")}: $filesCount ${ThemeState.getTranslation("disk")}: 91,54G/102,81G"
+                            "${ThemeState.getTranslation("folders")}: $foldersCount  ${ThemeState.getTranslation("files")}: $filesCount ${ThemeState.getTranslation("disk")}: ${getDiskInfo("/" + activePath.joinToString("/"))}"
                         }
                         MTDestination.TEXT_EDITOR -> "MT Unpack Code Editor v2.1-Pro"
                         else -> "MT Unpack_Dex Utilities Suite"
@@ -314,7 +353,7 @@ fun MTEditorApp(
                                 onOpenFile = { file, parentPath ->
                                     editingFile = file
                                     editingFileParentPath = parentPath
-                                    editorTextBuffer = file.content
+                                    editorTextBuffer = vfs.getFileContent(parentPath, file.name)
                                     currentDestination = MTDestination.TEXT_EDITOR
                                 },
                                 coroutineScope = coroutineScope,
@@ -322,7 +361,7 @@ fun MTEditorApp(
                                 textColor = textColor,
                                 secondaryText = secondaryText,
                                 dividerColor = dividerColor,
-                                accentColor = blueAccent
+                                accentColor = accentColor
                             )
                         }
                         MTDestination.TEXT_EDITOR -> {
@@ -343,7 +382,7 @@ fun MTEditorApp(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
                                 secondaryText = secondaryText,
-                                accent = blueAccent,
+                                accent = accentColor,
                                 headerColor = headerColor
                             )
                         }
@@ -353,7 +392,7 @@ fun MTEditorApp(
                                 surfaceColor = surfaceColor,
                                 dividerColor = dividerColor,
                                 textColor = textColor,
-                                accentColor = greenAccent
+                                accentColor = accentColor
                             )
                         }
                         MTDestination.EXTRACT_APK -> {
@@ -362,7 +401,7 @@ fun MTEditorApp(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
                                 secondaryText = secondaryText,
-                                accentColor = blueAccent,
+                                accentColor = accentColor,
                                 dividerColor = dividerColor,
                                 onBackToExplorer = { currentDestination = MTDestination.FILE_EXPLORER }
                             )
@@ -371,14 +410,14 @@ fun MTEditorApp(
                             ScreenColorPickerView(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
-                                accentColor = blueAccent
+                                accentColor = accentColor
                             )
                         }
                         MTDestination.REMOTE_MANAGEMENT -> {
                             RemoteManagementView(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
-                                accentColor = greenAccent
+                                accentColor = accentColor
                             )
                         }
                         MTDestination.PLUGIN_MANAGER -> {
@@ -386,7 +425,7 @@ fun MTEditorApp(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
                                 secondaryText = secondaryText,
-                                accentColor = blueAccent,
+                                accentColor = accentColor,
                                 dividerColor = dividerColor
                             )
                         }
@@ -397,7 +436,7 @@ fun MTEditorApp(
                                 surfaceColor = surfaceColor,
                                 textColor = textColor,
                                 secondaryText = secondaryText,
-                                accentColor = blueAccent,
+                                accentColor = accentColor,
                                 dividerColor = dividerColor
                             )
                         }
@@ -411,8 +450,8 @@ fun MTEditorApp(
 // Drawer components 
 @Composable
 fun DrawerHeaderView(
-    isDark: Boolean,
-    onThemeToggle: () -> Unit,
+    selectedTheme: AppTheme,
+    onThemeChange: (AppTheme) -> Unit,
     language: AppLanguage,
     onLanguageToggle: () -> Unit,
     headerColor: Color
@@ -433,14 +472,18 @@ fun DrawerHeaderView(
                 Icon(
                     imageVector = Icons.Default.Android,
                     contentDescription = "MT Logo",
-                    tint = Color(0xFF81C784),
+                    tint = when (selectedTheme) {
+                        AppTheme.CLASSIC_DARK -> Color(0xFFFFB300)
+                        AppTheme.MIDNIGHT_BLACK -> Color(0xFF00FF66)
+                        AppTheme.DEEP_BLUE -> Color(0xFF64FFDA)
+                    },
                     modifier = Modifier.size(36.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
                         text = "MT Editor Pro",
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -465,12 +508,48 @@ fun DrawerHeaderView(
                             .padding(6.dp)
                     )
                 }
-                
-                IconButton(onClick = onThemeToggle, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
-                        contentDescription = "Theme Toggle",
-                        tint = if (isDark) Color(0xFFFFF176) else Color(0xFFECEFF1)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Professional circular theme toggles
+        Text(
+            text = if (language == AppLanguage.ARABIC) "تغيير المظهر والرموز" else "Choose Visual Theme",
+            color = Color(0xFFB0BEC5),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val themes = listOf(
+                Triple(AppTheme.CLASSIC_DARK, Color(0xFF1E2633), Color(0xFFFFA726)),
+                Triple(AppTheme.MIDNIGHT_BLACK, Color(0xFF0F0F0F), Color(0xFF00FF66)),
+                Triple(AppTheme.DEEP_BLUE, Color(0xFF172A45), Color(0xFF64FFDA))
+            )
+            themes.forEach { item ->
+                val isSelected = selectedTheme == item.first
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(item.second)
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) Color.White else item.third.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        )
+                        .clickable { onThemeChange(item.first) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(item.third)
                     )
                 }
             }
@@ -654,12 +733,63 @@ fun FileExplorerScreen(
     var operationDialogType by remember { mutableStateOf<String?>(null) } // "copy", "move", "delete", "create_file", "create_folder", "rename"
     var inputNameBuffer by remember { mutableStateOf("") }
 
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+
     val activePath = if (selectedPane == PaneSelect.LEFT) leftPath else rightPath
     val inactivePath = if (selectedPane == PaneSelect.LEFT) rightPath else leftPath
     val activeSelection = if (selectedPane == PaneSelect.LEFT) leftSelectedFile else rightSelectedFile
     val setActiveSelection = if (selectedPane == PaneSelect.LEFT) onSelectLeftFile else onSelectRightFile
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // App-Level Search Filtering Row
+        if (isSearchActive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(surfaceColor)
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = {
+                        Text(
+                            text = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "تصفية الملفات الحالية..." else "Filter files...",
+                            fontSize = 13.sp,
+                            color = secondaryText
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = accentColor,
+                        unfocusedBorderColor = dividerColor,
+                        focusedTextColor = textColor,
+                        unfocusedTextColor = textColor
+                    ),
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = accentColor)
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(imageVector = Icons.Default.Clear, contentDescription = null, tint = textColor)
+                            }
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(onClick = {
+                    searchQuery = ""
+                    isSearchActive = false
+                }) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close search", tint = Color.Red)
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -692,6 +822,7 @@ fun FileExplorerScreen(
                     onOpenFile = { onOpenFile(it, leftPath.toList()) },
                     isActive = selectedPane == PaneSelect.LEFT,
                     onPaneFocus = { onPaneClick(PaneSelect.LEFT) },
+                    searchQuery = if (selectedPane == PaneSelect.LEFT) searchQuery else "",
                     textColor = textColor,
                     subColor = secondaryText,
                     dividerColor = dividerColor
@@ -733,6 +864,7 @@ fun FileExplorerScreen(
                     onOpenFile = { onOpenFile(it, rightPath.toList()) },
                     isActive = selectedPane == PaneSelect.RIGHT,
                     onPaneFocus = { onPaneClick(PaneSelect.RIGHT) },
+                    searchQuery = if (selectedPane == PaneSelect.RIGHT) searchQuery else "",
                     textColor = textColor,
                     subColor = secondaryText,
                     dividerColor = dividerColor
@@ -740,7 +872,7 @@ fun FileExplorerScreen(
             }
         }
 
-        // Bottom Operations & Navigation Control bar mimicking Image 2 icons
+        // Bottom Operations & Navigation Control bar 
         BottomExplorerBar(
             onGoUp = {
                 if (activePath.isNotEmpty()) {
@@ -748,27 +880,51 @@ fun FileExplorerScreen(
                     setActiveSelection(null)
                 }
             },
-            onSwap = {
-                // Swap left and right paths
-                val temp = leftPath.toList()
-                leftPath.clear()
-                leftPath.addAll(rightPath)
-                rightPath.clear()
-                rightPath.addAll(temp)
+            onRefresh = {
+                setActiveSelection(null)
+                Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "تم تحديث القائمة الحاليّة" else "Folder View Refreshed", Toast.LENGTH_SHORT).show()
+            },
+            onSearchToggle = {
+                isSearchActive = !isSearchActive
+                if (!isSearchActive) searchQuery = ""
             },
             onAdd = {
                 inputNameBuffer = ""
                 operationDialogType = "create_prompt"
             },
-            onMoreAction = {
+            onCopy = {
                 if (activeSelection == null) {
-                    Toast.makeText(context, "الرجاء اختيار ملف لإجراء العمليات عليه أولاً", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "الرجاء اختيار ملف أو مجلد" else "Please select a file first", Toast.LENGTH_SHORT).show()
                 } else {
-                    operationDialogType = "actions"
+                    operationDialogType = "copy"
                 }
             },
+            onMove = {
+                if (activeSelection == null) {
+                    Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "الرجاء اختيار ملف أو مجلد" else "Please select a file first", Toast.LENGTH_SHORT).show()
+                } else {
+                    operationDialogType = "move"
+                }
+            },
+            onRename = {
+                if (activeSelection == null) {
+                    Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "الرجاء اختيار ملف أو مجلد" else "Please select a file first", Toast.LENGTH_SHORT).show()
+                } else {
+                    inputNameBuffer = activeSelection.name
+                    operationDialogType = "rename"
+                }
+            },
+            onDelete = {
+                if (activeSelection == null) {
+                    Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "الرجاء اختيار ملف أو مجلد" else "Please select a file first", Toast.LENGTH_SHORT).show()
+                } else {
+                    operationDialogType = "delete"
+                }
+            },
+            accentColor = accentColor,
             surfaceColor = surfaceColor,
-            dividerColor = dividerColor
+            dividerColor = dividerColor,
+            textColor = textColor
         )
     }
 
@@ -986,6 +1142,7 @@ fun PaneFolderList(
     onOpenFile: (VirtualFile) -> Unit,
     isActive: Boolean,
     onPaneFocus: () -> Unit,
+    searchQuery: String,
     textColor: Color,
     subColor: Color,
     dividerColor: Color
@@ -993,13 +1150,18 @@ fun PaneFolderList(
     val currentDir = vfs.resolvePath(pathSegments)
     
     // Create actual directory item list
-    val itemsToShow = remember(currentDir, currentDir.children.size) {
+    val itemsToShow = remember(currentDir, currentDir.children.size, searchQuery) {
         val list = mutableListOf<VirtualFile>()
-        if (pathSegments.isNotEmpty()) {
+        if (pathSegments.isNotEmpty() && searchQuery.isEmpty()) {
             list.add(VirtualFile("..", isDirectory = true, dateModified = ""))
         }
-        val dirs = currentDir.children.filter { it.isDirectory }.sortedBy { it.name }
-        val files = currentDir.children.filter { !it.isDirectory }.sortedBy { it.name }
+        val sourceList = if (searchQuery.isNotEmpty()) {
+            currentDir.children.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        } else {
+            currentDir.children
+        }
+        val dirs = sourceList.filter { it.isDirectory }.sortedBy { it.name }
+        val files = sourceList.filter { !it.isDirectory }.sortedBy { it.name }
         list.addAll(dirs)
         list.addAll(files)
         list
@@ -1049,28 +1211,15 @@ fun PaneFolderList(
                             onPaneFocus()
                             if (item.name == "..") {
                                 onNavigate(item)
+                            } else if (item.isDirectory) {
+                                onNavigate(item)
                             } else {
                                 if (isSelected) {
-                                    onSelectFile(null)
+                                    onOpenFile(item)
                                 } else {
                                     onSelectFile(item)
                                 }
                             }
-                        }
-                        .pointerInput(item) {
-                            detectDragGestures(
-                                onDrag = { _, _ -> },
-                                onDragEnd = {
-                                    // Handle double-tap or navigate logic
-                                    if (item.name != "..") {
-                                        if (item.isDirectory) {
-                                            onNavigate(item)
-                                        } else {
-                                            onOpenFile(item)
-                                        }
-                                    }
-                                }
-                            )
                         }
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1122,16 +1271,56 @@ fun PaneFolderList(
     }
 }
 
-// Bottom bar mimicking Image 2 icons
+// Bottom Explorer action button item helper
+@Composable
+fun BottomExplorerAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit,
+    textColor: Color
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = label,
+            fontSize = 9.sp,
+            color = textColor.copy(alpha = 0.8f),
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+// Horizontally scrollable 8-button bottom action tray
 @Composable
 fun BottomExplorerBar(
     onGoUp: () -> Unit,
-    onSwap: () -> Unit,
+    onRefresh: () -> Unit,
+    onSearchToggle: () -> Unit,
     onAdd: () -> Unit,
-    onMoreAction: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    accentColor: Color,
     surfaceColor: Color,
-    dividerColor: Color
+    dividerColor: Color,
+    textColor: Color
 ) {
+    val scrollState = rememberScrollState()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = surfaceColor,
@@ -1142,22 +1331,75 @@ fun BottomExplorerBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .horizontalScroll(scrollState)
+                    .padding(vertical = 4.dp, horizontal = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onGoUp) {
-                    Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = "Go up", tint = Color(0xFF29B6F6))
-                }
-                IconButton(onClick = onSwap) {
-                    Icon(imageVector = Icons.Default.SwapCalls, contentDescription = "Sync travel", tint = Color(0xFF29B6F6))
-                }
-                IconButton(onClick = onAdd) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add new", tint = Color(0xFF29B6F6))
-                }
-                IconButton(onClick = onMoreAction) {
-                    Icon(imageVector = Icons.Default.SettingsInputComponent, contentDescription = "More actions", tint = Color(0xFF29B6F6))
-                }
+                // 1. Go Up
+                BottomExplorerAction(
+                    icon = Icons.Default.ArrowUpward,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "أعلى" else "Go Up",
+                    tint = accentColor,
+                    onClick = onGoUp,
+                    textColor = textColor
+                )
+                // 2. Refresh / Swap Pane
+                BottomExplorerAction(
+                    icon = Icons.Default.Autorenew,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "تحديث" else "Refresh",
+                    tint = accentColor,
+                    onClick = onRefresh,
+                    textColor = textColor
+                )
+                // 3. Search Filter
+                BottomExplorerAction(
+                    icon = Icons.Default.Search,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "بحث" else "Search",
+                    tint = accentColor,
+                    onClick = onSearchToggle,
+                    textColor = textColor
+                )
+                // 4. Create New File/Folder
+                BottomExplorerAction(
+                    icon = Icons.Default.CreateNewFolder,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "جديد" else "New",
+                    tint = accentColor,
+                    onClick = onAdd,
+                    textColor = textColor
+                )
+                // 5. Fast Copy to opposite pane
+                BottomExplorerAction(
+                    icon = Icons.Default.ContentCopy,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "نسخ" else "Copy",
+                    tint = accentColor,
+                    onClick = onCopy,
+                    textColor = textColor
+                )
+                // 6. Fast Move to opposite pane
+                BottomExplorerAction(
+                    icon = Icons.Default.MoveUp,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "نقل" else "Move",
+                    tint = accentColor,
+                    onClick = onMove,
+                    textColor = textColor
+                )
+                // 7. Fast Rename
+                BottomExplorerAction(
+                    icon = Icons.Default.Edit,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "تسمية" else "Rename",
+                    tint = accentColor,
+                    onClick = onRename,
+                    textColor = textColor
+                )
+                // 8. Fast Delete
+                BottomExplorerAction(
+                    icon = Icons.Default.DeleteForever,
+                    label = if (ThemeState.currentLanguage == AppLanguage.ARABIC) "حذف" else "Delete",
+                    tint = Color.Red,
+                    onClick = onDelete,
+                    textColor = textColor
+                )
             }
         }
     }
@@ -1292,6 +1534,44 @@ fun TextCodeEditorScreen(
             }
         }
 
+        // Keyboard Helper Accessory Row
+        val scrollState = rememberScrollState()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF101214))
+                .horizontalScroll(scrollState)
+                .padding(vertical = 5.dp, horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val symbols = listOf("{", "}", "[", "]", "(", ")", ".", ",", ";", "\"", "'", "=", "+", "-", "*", "%", "_", "$", ":", "\\t", "const-string", "return-void", "invoke-virtual")
+            symbols.forEach { sym ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF22252B))
+                        .clickable {
+                            if (sym == "\\t") {
+                                text += "    "
+                            } else {
+                                text += sym
+                            }
+                        }
+                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (sym == "\\t") "TAB" else sym,
+                        fontFamily = FontFamily.Monospace,
+                        color = accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         // Editable Code Canvas with Line Numbers
         Row(
             modifier = Modifier
@@ -1332,11 +1612,12 @@ fun TextCodeEditorScreen(
                 textStyle = androidx.compose.ui.text.TextStyle(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
-                    color = Color(0xFFA2C7E5) // Clean hacker layout
+                    color = Color(0xFFE2E8F0) // Highly readable text
                 ),
+                visualTransformation = CodeSyntaxHighlighter(accent),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFF181C1E),
-                    unfocusedContainerColor = Color(0xFF181C1E),
+                    focusedContainerColor = Color(0xFF0F1115),
+                    unfocusedContainerColor = Color(0xFF0F1115),
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 )
@@ -2065,5 +2346,108 @@ fun SmaliInstructionsView(
                 }
             }
         }
+    }
+}
+
+class CodeSyntaxHighlighter(val accentColor: Color) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val raw = text.text
+        val annotated = buildAnnotatedString {
+            var i = 0
+            while (i < raw.length) {
+                // Check comments
+                if (raw.startsWith("//", i)) {
+                    val endOfLine = raw.indexOf('\n', i).let { if (it == -1) raw.length else it }
+                    withStyle(SpanStyle(color = Color(0xFF6A9955))) { // Clean visual green comments
+                        append(raw.substring(i, endOfLine))
+                    }
+                    i = endOfLine
+                    continue
+                }
+                if (raw.startsWith("#", i)) {
+                    val endOfLine = raw.indexOf('\n', i).let { if (it == -1) raw.length else it }
+                    withStyle(SpanStyle(color = Color(0xFF6A9955))) {
+                        append(raw.substring(i, endOfLine))
+                    }
+                    i = endOfLine
+                    continue
+                }
+                
+                // Double quoted strings
+                if (raw[i] == '"') {
+                    val nextQuote = raw.indexOf('"', i + 1).let { if (it == -1) raw.length else it + 1 }
+                    withStyle(SpanStyle(color = Color(0xFFCE9178))) { // VS Code default color for strings
+                        append(raw.substring(i, nextQuote))
+                    }
+                    i = nextQuote
+                    continue
+                }
+
+                // Single quoted strings (Smali or Kotlin char literal / reference)
+                if (raw[i] == '\'') {
+                    val nextQuote = raw.indexOf('\'', i + 1).let { if (it == -1) raw.length else it + 1 }
+                    withStyle(SpanStyle(color = Color(0xFFCE9178))) {
+                        append(raw.substring(i, nextQuote))
+                    }
+                    i = nextQuote
+                    continue
+                }
+
+                // Registers, variables or numbers
+                if (raw[i].isDigit()) {
+                    var endDigit = i
+                    while (endDigit < raw.length && (raw[endDigit].isDigit() || raw[endDigit] == 'x' || raw[endDigit] == 'b' || raw[endDigit] == 'f')) {
+                        endDigit++
+                    }
+                    withStyle(SpanStyle(color = Color(0xFFB5CEA8))) { // Soft number coloring
+                        append(raw.substring(i, endDigit))
+                    }
+                    i = endDigit
+                    continue
+                }
+
+                // Check letters for keywords
+                if (raw[i].isLetter() || raw[i] == '.' || raw[i] == '#') {
+                    var endWord = i + 1
+                    while (endWord < raw.length && (raw[endWord].isLetterOrDigit() || raw[endWord] == '-' || raw[endWord] == '.' || raw[endWord] == '_' || raw[endWord] == ':')) {
+                        endWord++
+                    }
+                    val word = raw.substring(i, endWord)
+                    
+                    val isSmaliKeyword = word.startsWith(".") || word.startsWith("invoke-") || word.startsWith("const-") || word == "return-void" || word == "return" || word == "nop" || word == "goto" || word == "move-result" || word == "move-result-object" || word.startsWith("if-")
+                    val isLangKeyword = word in listOf(
+                        "package", "import", "class", "fun", "val", "var", "private", "public", "protected", "override", "interface", 
+                        "void", "static", "final", "constructor", "return", "true", "false", "this", "super", "null", "if", "else", "while"
+                    )
+                    
+                    if (isSmaliKeyword || isLangKeyword) {
+                        withStyle(SpanStyle(color = accentColor, fontWeight = FontWeight.Bold)) {
+                            append(word)
+                        }
+                    } else if (word.startsWith("L") && word.contains(";") && word.length > 2) {
+                        // Class descriptors in Smali e.g. Landroid/app/Activity;
+                        withStyle(SpanStyle(color = Color(0xFF4EC9B0))) { // Greenish Blue aquamarine for class names
+                            append(word)
+                        }
+                    } else if (word.startsWith("v") && word.length in 2..3 && word[1].isDigit()) {
+                        // Smali registers (v0, v1, p0, p1)
+                        withStyle(SpanStyle(color = Color(0xFF9CDCFE), fontWeight = FontWeight.SemiBold)) { // Blue soft register
+                            append(word)
+                        }
+                    } else if (word.startsWith("p") && word.length in 2..3 && word[1].isDigit()) {
+                        withStyle(SpanStyle(color = Color(0xFF9CDCFE), fontWeight = FontWeight.SemiBold)) {
+                            append(word)
+                        }
+                    } else {
+                        append(word)
+                    }
+                    i = endWord
+                } else {
+                    append(raw[i])
+                    i++
+                }
+            }
+        }
+        return TransformedText(annotated, OffsetMapping.Identity)
     }
 }
