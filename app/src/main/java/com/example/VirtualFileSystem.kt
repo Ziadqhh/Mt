@@ -80,12 +80,23 @@ fun safelyReadFileContent(file: File): String {
 class VirtualFileSystem {
     var root: VirtualFile = createDefaultVirtualFileSystem()
     var useRealFS: Boolean = true
+    var customRootPath: String? = null
+
+    fun getRealFile(pathSegments: List<String>, fileName: String? = null): File {
+        val base = customRootPath ?: ""
+        val parts = if (fileName != null) pathSegments + fileName else pathSegments
+        val fullPath = if (base.isNotEmpty()) {
+            base + "/" + parts.joinToString("/")
+        } else {
+            "/" + parts.joinToString("/")
+        }
+        return File(fullPath)
+    }
 
     fun getFileContent(pathSegments: List<String>, fileName: String): String {
         if (useRealFS) {
             try {
-                val fullPath = "/" + (pathSegments + fileName).joinToString("/")
-                val file = File(fullPath)
+                val file = getRealFile(pathSegments, fileName)
                 if (file.exists() && file.isFile) {
                     return safelyReadFileContent(file)
                 }
@@ -101,8 +112,7 @@ class VirtualFileSystem {
     fun resolvePath(pathSegments: List<String>): VirtualFile {
         if (useRealFS) {
             try {
-                val fullPath = "/" + pathSegments.joinToString("/")
-                val file = File(fullPath)
+                val file = getRealFile(pathSegments)
                 if (file.exists() && file.isDirectory) {
                     val filesList = file.listFiles()
                     val childrenList = mutableListOf<VirtualFile>()
@@ -151,8 +161,7 @@ class VirtualFileSystem {
     fun addFile(pathSegments: List<String>, name: String, text: String, isFolder: Boolean = false): Boolean {
         if (useRealFS) {
             try {
-                val fullPath = "/" + (pathSegments + name).joinToString("/")
-                val file = File(fullPath)
+                val file = getRealFile(pathSegments, name)
                 if (file.exists()) return false
                 if (isFolder) {
                     return file.mkdirs()
@@ -181,10 +190,8 @@ class VirtualFileSystem {
     fun renameFile(pathSegments: List<String>, oldName: String, newName: String): Boolean {
         if (useRealFS) {
             try {
-                val oldPath = "/" + (pathSegments + oldName).joinToString("/")
-                val newPath = "/" + (pathSegments + newName).joinToString("/")
-                val oldFile = File(oldPath)
-                val newFile = File(newPath)
+                val oldFile = getRealFile(pathSegments, oldName)
+                val newFile = getRealFile(pathSegments, newName)
                 if (oldFile.exists() && !newFile.exists()) {
                     return oldFile.renameTo(newFile)
                 }
@@ -205,8 +212,7 @@ class VirtualFileSystem {
     fun deleteFile(pathSegments: List<String>, name: String): Boolean {
         if (useRealFS) {
             try {
-                val fullPath = "/" + (pathSegments + name).joinToString("/")
-                val file = File(fullPath)
+                val file = getRealFile(pathSegments, name)
                 if (file.exists()) {
                     return file.deleteRecursively()
                 }
@@ -223,8 +229,8 @@ class VirtualFileSystem {
     fun copyFile(sourcePath: List<String>, sourceName: String, targetPath: List<String>): Boolean {
         if (useRealFS) {
             try {
-                val srcFile = File("/" + (sourcePath + sourceName).joinToString("/"))
-                val destFile = File("/" + (targetPath + sourceName).joinToString("/"))
+                val srcFile = getRealFile(sourcePath, sourceName)
+                val destFile = getRealFile(targetPath, sourceName)
                 if (srcFile.exists()) {
                     if (srcFile.isDirectory) {
                         srcFile.copyRecursively(destFile, overwrite = true)
@@ -264,8 +270,8 @@ class VirtualFileSystem {
     fun moveFile(sourcePath: List<String>, sourceName: String, targetPath: List<String>): Boolean {
         if (useRealFS) {
             try {
-                val srcFile = File("/" + (sourcePath + sourceName).joinToString("/"))
-                val destFile = File("/" + (targetPath + sourceName).joinToString("/"))
+                val srcFile = getRealFile(sourcePath, sourceName)
+                val destFile = getRealFile(targetPath, sourceName)
                 if (srcFile.exists()) {
                     val completed = srcFile.renameTo(destFile)
                     if (completed) return true
@@ -341,9 +347,9 @@ class VirtualFileSystem {
     }
 }
 
-fun ensureRealDirectorySetup(context: Context) {
+fun ensureRealDirectorySetup(context: Context, customPath: String? = null) {
     try {
-        val rootPath = "/storage/emulated/0"
+        val rootPath = customPath ?: "/storage/emulated/0"
         val rootDir = File(rootPath)
         if (!rootDir.exists()) {
             rootDir.mkdirs()

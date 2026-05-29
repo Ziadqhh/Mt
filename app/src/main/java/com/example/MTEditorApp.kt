@@ -67,6 +67,12 @@ enum class PaneSelect {
     RIGHT
 }
 
+enum class WorkspaceMode {
+    SANDBOX,
+    EXTERNAL,
+    VIRTUAL
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MTEditorApp(
@@ -74,23 +80,77 @@ fun MTEditorApp(
     coroutineScope: CoroutineScope = rememberCoroutineScope()
 ) {
     val context = LocalContext.current
+    val sandboxPath = remember { context.filesDir.absolutePath + "/MTProjects" }
+    
     val vfs = remember {
-        ensureRealDirectorySetup(context)
-        VirtualFileSystem()
+        val v = VirtualFileSystem()
+        v.customRootPath = sandboxPath
+        v
     }
+    
+    var workspaceMode by remember { mutableStateOf(WorkspaceMode.SANDBOX) }
     
     // Theme & Info configurations
     var selectedTheme by remember { mutableStateOf(AppTheme.CLASSIC_DARK) }
     var appLanguage by remember { mutableStateOf(AppLanguage.ARABIC) }
     
     // VFS navigation state
-    val leftPath = remember { mutableStateListOf("storage", "emulated", "0") }
-    val rightPath = remember { mutableStateListOf("storage", "emulated", "0", "AndroidCSProjects") }
+    val leftPath = remember { mutableStateListOf<String>() }
+    val rightPath = remember { mutableStateListOf("AndroidCSProjects") }
     var selectedPane by remember { mutableStateOf(PaneSelect.LEFT) }
+    var vfsVersion by remember { mutableStateOf(0) }
     
     // File highlights for context operations
     var leftSelectedFile by remember { mutableStateOf<VirtualFile?>(null) }
     var rightSelectedFile by remember { mutableStateOf<VirtualFile?>(null) }
+
+    // Async directory setup in IO background thread
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                ensureRealDirectorySetup(context, sandboxPath)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+            try {
+                ensureRealDirectorySetup(context, "/storage/emulated/0")
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
+    }
+
+    // Adapt paths when workspace mode changes dynamically
+    LaunchedEffect(workspaceMode) {
+        when (workspaceMode) {
+            WorkspaceMode.SANDBOX -> {
+                vfs.useRealFS = true
+                vfs.customRootPath = sandboxPath
+                leftPath.clear()
+                rightPath.clear()
+                rightPath.add("AndroidCSProjects")
+            }
+            WorkspaceMode.EXTERNAL -> {
+                vfs.useRealFS = true
+                vfs.customRootPath = null
+                leftPath.clear()
+                leftPath.addAll(listOf("storage", "emulated", "0"))
+                rightPath.clear()
+                rightPath.addAll(listOf("storage", "emulated", "0", "AndroidCSProjects"))
+            }
+            WorkspaceMode.VIRTUAL -> {
+                vfs.useRealFS = false
+                vfs.customRootPath = null
+                leftPath.clear()
+                leftPath.addAll(listOf("storage", "emulated", "0"))
+                rightPath.clear()
+                rightPath.addAll(listOf("storage", "emulated", "0", "AndroidCSProjects"))
+            }
+        }
+        leftSelectedFile = null
+        rightSelectedFile = null
+        vfsVersion++
+    }
     
     // Active Screen Destination
     var currentDestination by remember { mutableStateOf(MTDestination.FILE_EXPLORER) }
@@ -192,45 +252,56 @@ fun MTEditorApp(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     item {
-                        DrawerCategoryHeader(title = ThemeState.getTranslation("local_section"), textColor = textColor)
+                        DrawerCategoryHeader(title = if (appLanguage == AppLanguage.ARABIC) "منطقة العمل النشطة" else "Active Workspace", textColor = textColor)
                     }
                     item {
                         DrawerStorageItem(
-                            title = ThemeState.getTranslation("root_dir"),
-                            subtitle = "693,92M used, 0B available",
-                            percentage = 1.0f,
-                            icon = Icons.Default.DeveloperMode,
-                            iconTint = blueAccent,
+                            title = if (appLanguage == AppLanguage.ARABIC) "مساحة المشاريع الآمنة" else "Secure Sandbox Workspace",
+                            subtitle = if (appLanguage == AppLanguage.ARABIC) "مساحة سريعة ومعزولة لملفات التعديل" else "High-speed isolated editing zone",
+                            percentage = 0.15f,
+                            icon = Icons.Default.Shield,
+                            iconTint = Color(0xFF64FFDA),
                             textColor = textColor,
                             subColor = secondaryText,
+                            isActive = workspaceMode == WorkspaceMode.SANDBOX,
                             onClick = {
-                                if (selectedPane == PaneSelect.LEFT) {
-                                    leftPath.clear()
-                                } else {
-                                    rightPath.clear()
-                                }
+                                workspaceMode = WorkspaceMode.SANDBOX
                                 currentDestination = MTDestination.FILE_EXPLORER
                                 coroutineScope.launch { drawerState.close() }
                             }
                         )
                     }
+                    item { Spacer(modifier = Modifier.height(6.dp)) }
                     item {
                         DrawerStorageItem(
-                            title = ThemeState.getTranslation("storage_dir"),
-                            subtitle = "91,54G used, 11,26G available",
-                            percentage = 0.89f,
-                            icon = Icons.Default.Storage,
-                            iconTint = greenAccent,
+                            title = if (appLanguage == AppLanguage.ARABIC) "مساحة الهاتف العامة" else "Device Public Storage",
+                            subtitle = "/storage/emulated/0",
+                            percentage = 0.82f,
+                            icon = Icons.Default.FolderSpecial,
+                            iconTint = Color(0xFFFFB300),
                             textColor = textColor,
                             subColor = secondaryText,
+                            isActive = workspaceMode == WorkspaceMode.EXTERNAL,
                             onClick = {
-                                if (selectedPane == PaneSelect.LEFT) {
-                                    leftPath.clear()
-                                    leftPath.addAll(listOf("storage", "emulated", "0"))
-                                } else {
-                                    rightPath.clear()
-                                    rightPath.addAll(listOf("storage", "emulated", "0"))
-                                }
+                                workspaceMode = WorkspaceMode.EXTERNAL
+                                currentDestination = MTDestination.FILE_EXPLORER
+                                coroutineScope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(6.dp)) }
+                    item {
+                        DrawerStorageItem(
+                            title = if (appLanguage == AppLanguage.ARABIC) "النظام الوهمي الافتراضي" else "Virtual In-Memory FS",
+                            subtitle = if (appLanguage == AppLanguage.ARABIC) "محاكاة ذكية للتعديل السريع" else "Fast in-memory file simulation",
+                            percentage = 0.05f,
+                            icon = Icons.Default.CloudQueue,
+                            iconTint = Color(0xFF29B6F6),
+                            textColor = textColor,
+                            subColor = secondaryText,
+                            isActive = workspaceMode == WorkspaceMode.VIRTUAL,
+                            onClick = {
+                                workspaceMode = WorkspaceMode.VIRTUAL
                                 currentDestination = MTDestination.FILE_EXPLORER
                                 coroutineScope.launch { drawerState.close() }
                             }
@@ -261,7 +332,11 @@ fun MTEditorApp(
                             onClick = {
                                 if (item.first == MTDestination.TEXT_EDITOR && editingFile == null) {
                                     // Preload MyCoolApp's MainActivity.kt so editor isn't blank
-                                    val demoPath = listOf("storage", "emulated", "0", "AndroidCSProjects", "MyCoolApp", "app", "src", "main", "java", "com", "example", "mycoolapp")
+                                    val demoPath = if (workspaceMode == WorkspaceMode.SANDBOX) {
+                                        listOf("AndroidCSProjects", "MyCoolApp", "app", "src", "main", "java", "com", "example", "mycoolapp")
+                                    } else {
+                                        listOf("storage", "emulated", "0", "AndroidCSProjects", "MyCoolApp", "app", "src", "main", "java", "com", "example", "mycoolapp")
+                                    }
                                     val resolved = vfs.resolvePath(demoPath)
                                     val actFile = resolved.children.find { it.name == "MainActivity.kt" }
                                     if (actFile != null) {
@@ -361,7 +436,9 @@ fun MTEditorApp(
                                 textColor = textColor,
                                 secondaryText = secondaryText,
                                 dividerColor = dividerColor,
-                                accentColor = accentColor
+                                accentColor = accentColor,
+                                vfsVersion = vfsVersion,
+                                onVfsUpdate = { vfsVersion++ }
                             )
                         }
                         MTDestination.TEXT_EDITOR -> {
@@ -373,6 +450,7 @@ fun MTEditorApp(
                                     val fName = editingFile?.name
                                     if (fName != null) {
                                         vfs.updateFileContent(editingFileParentPath, fName, newContent)
+                                        vfsVersion++
                                         Toast.makeText(context, "${ThemeState.getTranslation("success")} - Saved virtual file!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
@@ -579,14 +657,17 @@ fun DrawerStorageItem(
     iconTint: Color,
     textColor: Color,
     subColor: Color,
+    isActive: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .background(if (isActive) iconTint.copy(alpha = 0.08f) else Color.Transparent)
+            .border(1.dp, if (isActive) iconTint.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
             .clickable { onClick() }
-            .padding(8.dp),
+            .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -726,7 +807,9 @@ fun FileExplorerScreen(
     textColor: Color,
     secondaryText: Color,
     dividerColor: Color,
-    accentColor: Color
+    accentColor: Color,
+    vfsVersion: Int,
+    onVfsUpdate: () -> Unit
 ) {
     val context = LocalContext.current
     val greenAccent = Color(0xFF66BB6A)
@@ -818,6 +901,7 @@ fun FileExplorerScreen(
                         } else {
                             leftPath.add(file.name)
                         }
+                        onVfsUpdate()
                     },
                     onOpenFile = { onOpenFile(it, leftPath.toList()) },
                     isActive = selectedPane == PaneSelect.LEFT,
@@ -825,7 +909,8 @@ fun FileExplorerScreen(
                     searchQuery = if (selectedPane == PaneSelect.LEFT) searchQuery else "",
                     textColor = textColor,
                     subColor = secondaryText,
-                    dividerColor = dividerColor
+                    dividerColor = dividerColor,
+                    vfsVersion = vfsVersion
                 )
             }
             
@@ -860,6 +945,7 @@ fun FileExplorerScreen(
                         } else {
                             rightPath.add(file.name)
                         }
+                        onVfsUpdate()
                     },
                     onOpenFile = { onOpenFile(it, rightPath.toList()) },
                     isActive = selectedPane == PaneSelect.RIGHT,
@@ -867,7 +953,8 @@ fun FileExplorerScreen(
                     searchQuery = if (selectedPane == PaneSelect.RIGHT) searchQuery else "",
                     textColor = textColor,
                     subColor = secondaryText,
-                    dividerColor = dividerColor
+                    dividerColor = dividerColor,
+                    vfsVersion = vfsVersion
                 )
             }
         }
@@ -882,6 +969,7 @@ fun FileExplorerScreen(
             },
             onRefresh = {
                 setActiveSelection(null)
+                onVfsUpdate()
                 Toast.makeText(context, if (ThemeState.currentLanguage == AppLanguage.ARABIC) "تم تحديث القائمة الحاليّة" else "Folder View Refreshed", Toast.LENGTH_SHORT).show()
             },
             onSearchToggle = {
@@ -1066,57 +1154,75 @@ fun FileExplorerScreen(
                 if (operationDialogType != "create_prompt" && operationDialogType != "actions") {
                     TextButton(
                         onClick = {
-                            val activeVal = activeSelection
-                            when (operationDialogType) {
-                                "create_file" -> {
-                                    if (inputNameBuffer.trim().isNotEmpty()) {
-                                        vfs.addFile(activePath, inputNameBuffer.trim(), "# New empty source file decompiled using MT Editor")
-                                        Toast.makeText(context, "تم إنشاء الملف بنجاح", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val activeVal = activeSelection
+                                var successToast: String? = null
+                                when (operationDialogType) {
+                                    "create_file" -> {
+                                        if (inputNameBuffer.trim().isNotEmpty()) {
+                                            vfs.addFile(activePath, inputNameBuffer.trim(), "# New empty source file decompiled using MT Editor")
+                                            successToast = "تم إنشاء الملف بنجاح"
+                                        }
+                                    }
+                                    "create_folder" -> {
+                                        if (inputNameBuffer.trim().isNotEmpty()) {
+                                            vfs.addFile(activePath, inputNameBuffer.trim(), "", isFolder = true)
+                                            successToast = "تم إنشاء المجلد بنجاح"
+                                        }
+                                    }
+                                    "copy" -> {
+                                        if (activeVal != null) {
+                                            val res = vfs.copyFile(activePath, activeVal.name, inactivePath)
+                                            successToast = if (res) "تم النسخ بنجاح" else "خطأ بالنسخ"
+                                        }
+                                    }
+                                    "move" -> {
+                                        if (activeVal != null) {
+                                            val res = vfs.moveFile(activePath, activeVal.name, inactivePath)
+                                            if (res) {
+                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    setActiveSelection(null)
+                                                }
+                                                successToast = "تم النقل بنجاح"
+                                            } else {
+                                                successToast = "خطأ بالنقل"
+                                            }
+                                        }
+                                    }
+                                    "rename" -> {
+                                        if (activeVal != null && inputNameBuffer.trim().isNotEmpty()) {
+                                            val res = vfs.renameFile(activePath, activeVal.name, inputNameBuffer.trim())
+                                            if (res) {
+                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    setActiveSelection(null)
+                                                }
+                                                successToast = "تم تغيير الاسم"
+                                            } else {
+                                                successToast = "الاسم مستخدم بالفعل"
+                                            }
+                                        }
+                                    }
+                                    "delete" -> {
+                                        if (activeVal != null) {
+                                            vfs.deleteFile(activePath, activeVal.name)
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                setActiveSelection(null)
+                                            }
+                                            successToast = "تم الحذف"
+                                        }
                                     }
                                 }
-                                "create_folder" -> {
-                                    if (inputNameBuffer.trim().isNotEmpty()) {
-                                        vfs.addFile(activePath, inputNameBuffer.trim(), "", isFolder = true)
-                                        Toast.makeText(context, "تم إنشاء المجلد بنجاح", Toast.LENGTH_SHORT).show()
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    if (successToast != null) {
+                                        Toast.makeText(context, successToast, Toast.LENGTH_SHORT).show()
+                                        onVfsUpdate()
                                     }
-                                }
-                                "copy" -> {
-                                    if (activeVal != null) {
-                                        val res = vfs.copyFile(activePath, activeVal.name, inactivePath)
-                                        if (res) Toast.makeText(context, "تم النسخ بنجاح", Toast.LENGTH_SHORT).show()
-                                        else Toast.makeText(context, "خطأ بالنسخ", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                "move" -> {
-                                    if (activeVal != null) {
-                                        val res = vfs.moveFile(activePath, activeVal.name, inactivePath)
-                                        if (res) {
-                                            setActiveSelection(null)
-                                            Toast.makeText(context, "تم النقل بنجاح", Toast.LENGTH_SHORT).show()
-                                        } else Toast.makeText(context, "خطأ بالنقل", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                "rename" -> {
-                                    if (activeVal != null && inputNameBuffer.trim().isNotEmpty()) {
-                                        val res = vfs.renameFile(activePath, activeVal.name, inputNameBuffer.trim())
-                                        if (res) {
-                                            setActiveSelection(null)
-                                            Toast.makeText(context, "تم تغيير الاسم", Toast.LENGTH_SHORT).show()
-                                        } else Toast.makeText(context, "الاسم مستخدم بالفعل", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                "delete" -> {
-                                    if (activeVal != null) {
-                                        vfs.deleteFile(activePath, activeVal.name)
-                                        setActiveSelection(null)
-                                        Toast.makeText(context, "تم الحذف", Toast.LENGTH_SHORT).show()
-                                    }
+                                    operationDialogType = null
                                 }
                             }
-                            operationDialogType = null
                         }
                     ) {
-                        Text("تأفيذ", color = accentColor, fontWeight = FontWeight.Bold)
+                        Text("تأكيد", color = accentColor, fontWeight = FontWeight.Bold)
                     }
                 }
             },
@@ -1145,12 +1251,13 @@ fun PaneFolderList(
     searchQuery: String,
     textColor: Color,
     subColor: Color,
-    dividerColor: Color
+    dividerColor: Color,
+    vfsVersion: Int
 ) {
     val currentDir = vfs.resolvePath(pathSegments)
     
     // Create actual directory item list
-    val itemsToShow = remember(currentDir, currentDir.children.size, searchQuery) {
+    val itemsToShow = remember(currentDir, currentDir.children.size, searchQuery, vfsVersion) {
         val list = mutableListOf<VirtualFile>()
         if (pathSegments.isNotEmpty() && searchQuery.isEmpty()) {
             list.add(VirtualFile("..", isDirectory = true, dateModified = ""))
@@ -1918,8 +2025,12 @@ fun ExtractApkView(
                             ) {
                                 Button(
                                     onClick = {
-                                        // Mock apk creation inside Download VFS path
-                                        val savePath = listOf("storage", "emulated", "0", "Download")
+                                        // Dynamic apk creation based on VFS workspace state
+                                        val savePath = if (vfs.customRootPath != null) {
+                                            listOf("Download")
+                                        } else {
+                                            listOf("storage", "emulated", "0", "Download")
+                                        }
                                         val newApkName = "${app.first.replace(" ", "_")}_extracted.apk"
                                         vfs.addFile(savePath, newApkName, "[Extracted Binary package payload - signature matching successfully]")
                                         Toast.makeText(context, "تم استخراج ملف الـ APK في Download/ !", Toast.LENGTH_LONG).show()
