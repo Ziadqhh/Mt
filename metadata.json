@@ -1,0 +1,6 @@
+{
+  "name": "MT Editor",
+  "description": "A professional and powerful dual-pane file explorer and text code editor inspired by MT Manager, featuring folder navigation, APK utilities, system tools, terminal emulator, and Gemini-powered code assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
